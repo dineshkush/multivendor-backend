@@ -1,6 +1,7 @@
 const User = require("../models/User.model");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
+const generateTokens = require("../utils/generateTokens");
 
 exports.register = async (req, res) => {
   try {
@@ -36,15 +37,51 @@ exports.login = async (req, res) => {
     if (!isMatch)
       return res.status(400).json({ message: "Invalid credentials" });
 
-    const token = jwt.sign(
-      { id: user._id },
-      process.env.JWT_SECRET,
-      { expiresIn: "7d" }
-    );
+    const { accessToken, refreshToken } = generateTokens(user);
 
-    res.json({ token, user });
+    user.refreshToken = refreshToken;
+
+    await user.save();
+
+    res.json({
+    accessToken,
+    refreshToken,
+    user
+  });
+
+    // const token = jwt.sign(
+    //   { id: user._id },
+    //   process.env.JWT_SECRET,
+    //   { expiresIn: "7d" }
+    // );
+
+    // res.json({ token, user });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 };
+
+exports.refreshToken = async (req, res) => {
+  const { refreshToken } = req.body;
+
+  if (!refreshToken)
+    return res.status(401).json({ message: "No refresh token" });
+
+  const user = await User.findOne({ refreshToken });
+  if (!user)
+    return res.status(403).json({ message: "Invalid refresh token" });
+
+  jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET, (err, decoded) => {
+    if (err) return res.status(403).json({ message: "Expired refresh token" });
+
+    const accessToken = jwt.sign(
+      { id: user._id, role: user.role },
+      process.env.JWT_SECRET,
+      { expiresIn: "15m" }
+    );
+
+    res.json({ accessToken });
+  });
+};
+
 
